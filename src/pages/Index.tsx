@@ -86,10 +86,22 @@ const Index = () => {
       return;
     }
 
+    // Check if user is authenticated
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      toast.error("Please sign in to book a flight");
+      setTimeout(() => {
+        window.location.href = "/auth";
+      }, 1500);
+      return;
+    }
+
     try {
       const { data, error } = await supabase
         .from("bookings")
         .insert({
+          user_id: session.user.id,
           pickup_location: { lat: pickupLocation.lat, lng: pickupLocation.lng, address: pickupLocation.address },
           destination: { lat: destination.lat, lng: destination.lng, address: destination.address },
           vehicle_tier: vehicleTier,
@@ -97,25 +109,26 @@ const Index = () => {
           route_complexity: pricing.routeComplexity,
           surge_multiplier: pricing.surgeMultiplier,
           final_price: pricing.finalPrice,
-          status: 'pending',
+          status: 'confirmed',
           estimated_duration: Math.ceil(pricing.baseDistance / (vehicleTier === 'aeroluxe' ? 1.3 : 1.0) * 5),
-        });
+        })
+        .select()
+        .single();
 
       if (error) {
-        // If RLS error, it means user needs to be authenticated
-        if (error.message.includes("row-level security")) {
-          toast.error("Please sign in to book a flight");
-        } else {
-          toast.error("Booking failed: " + error.message);
-        }
+        toast.error("Booking failed: " + error.message);
       } else {
         toast.success("Flight booked successfully! 🚁");
-        // Reset form
-        setTimeout(() => {
-          setShowBooking(false);
-          setPickupLocation(null);
-          setDestination(null);
-          setPricing(null);
+        
+        // Update booking to in_transit after 2 seconds
+        setTimeout(async () => {
+          await supabase
+            .from("bookings")
+            .update({ status: 'in_transit' })
+            .eq('id', data.id);
+          
+          // Navigate to tracking page
+          window.location.href = `/tracking/${data.id}`;
         }, 2000);
       }
     } catch (error) {

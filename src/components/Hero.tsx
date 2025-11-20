@@ -1,13 +1,59 @@
 import { Button } from "@/components/ui/button";
-import { Plane } from "lucide-react";
+import { Plane, User } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface HeroProps {
   onStartBooking: () => void;
 }
 
 const Hero = ({ onStartBooking }: HeroProps) => {
+  const navigate = useNavigate();
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   return (
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden">
+      {/* Top Navigation */}
+      <div className="absolute top-0 left-0 right-0 p-4 md:p-8 flex justify-between items-center z-20">
+        <div className="flex items-center gap-2">
+          <Plane className="w-8 h-8 text-white" />
+          <span className="text-2xl font-bold text-white">SkyLift</span>
+        </div>
+        <div className="flex gap-2">
+          {user ? (
+            <Button
+              variant="outline"
+              onClick={() => navigate("/dashboard")}
+              className="bg-white/10 text-white border-white/20 hover:bg-white/20"
+            >
+              <User className="w-4 h-4 mr-2" />
+              Dashboard
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => navigate("/auth")}
+              className="bg-white/10 text-white border-white/20 hover:bg-white/20"
+            >
+              <User className="w-4 h-4 mr-2" />
+              Sign In
+            </Button>
+          )}
+        </div>
+      </div>
       {/* Animated gradient background */}
       <div className="absolute inset-0 sky-gradient opacity-90" />
       
