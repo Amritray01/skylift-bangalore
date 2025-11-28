@@ -1,299 +1,180 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { Booking } from "@/types/fly-cab"; 
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
-import { Plane, MapPin, Clock, User, LogOut, Calendar } from "lucide-react";
-
-interface Booking {
-  id: string;
-  pickup_location: any;
-  destination: any;
-  vehicle_tier: string;
-  final_price: number;
-  status: string;
-  estimated_duration: number;
-  created_at: string;
-}
+import { MapPin, Calendar, Clock, ArrowRight, TrendingUp } from "lucide-react";
 
 const Dashboard = () => {
-  const [user, setUser] = useState<any>(null);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [userName, setUserName] = useState("Traveler");
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [activeFleet, setActiveFleet] = useState<number>(0);
 
   useEffect(() => {
-    checkUser();
-    
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!session) {
-        navigate("/auth");
-      } else {
-        setUser(session.user);
-        fetchBookings(session.user.id);
-      }
-    });
+    fetchDashboardData();
+  }, []);
 
-    return () => subscription.unsubscribe();
-  }, [navigate]);
-
-  const checkUser = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
-      navigate("/auth");
-      return;
-    }
-
-    setUser(session.user);
-    await fetchBookings(session.user.id);
-  };
-
-  const fetchBookings = async (userId: string) => {
-    setLoading(true);
+  const fetchDashboardData = async () => {
     try {
-      const { data, error } = await supabase
-        .from("bookings")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
+      // 1. Check User Session
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        navigate("/auth"); 
+        return;
+      }
+      
+      // Get User Profile (Optional)
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", user.id)
+        .single();
+        
+      if (profile?.full_name) setUserName(profile.full_name);
 
-      if (error) throw error;
-      setBookings(data || []);
-    } catch (error: any) {
-      toast.error("Failed to load bookings");
-      console.error(error);
+      // 2. Fetch My Bookings
+      // We join with Skyports to get the readable names instead of just IDs
+      const { data: myBookings, error } = await supabase
+        .from("bookings")
+        .select(`
+          *,
+          pickup:pickup_port_id(name, type),
+          dropoff:dropoff_port_id(name, type)
+        `)
+        .eq("user_id", user.id)
+        .order("scheduled_for", { ascending: false });
+
+      if (error) console.error("Error fetching bookings:", error);
+      else setBookings(myBookings as any);
+
+      // 3. Get Live Fleet Count
+      const { count } = await supabase
+        .from("view_vehicles_public") // Querying the View
+        .select("*", { count: 'exact', head: true })
+        .neq("status", "maintenance"); // Count everything except maintenance
+      
+      setActiveFleet(count || 0);
+
+    } catch (error) {
+      console.error("Dashboard Load Error:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    toast.success("Signed out successfully");
-    navigate("/");
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "confirmed":
-        return "bg-green-500";
-      case "in_transit":
-        return "bg-blue-500";
-      case "completed":
-        return "bg-gray-500";
-      case "cancelled":
-        return "bg-red-500";
-      default:
-        return "bg-yellow-500";
-    }
-  };
-
-  const activeBookings = bookings.filter((b) => 
-    b.status === "confirmed" || b.status === "in_transit"
-  );
-  
-  const pastBookings = bookings.filter((b) => 
-    b.status === "completed" || b.status === "cancelled"
-  );
+  if (loading) return <div className="p-8 text-center text-white">Loading Command Center...</div>;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-start to-sky-end p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <div className="flex items-center gap-4">
-            <Plane className="w-10 h-10 text-white" />
-            <div>
-              <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-              <p className="text-white/80">Welcome back, {user?.email}</p>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => navigate("/")}
-              className="bg-white/10 text-white border-white/20 hover:bg-white/20"
-            >
-              Book Flight
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleSignOut}
-              className="bg-white/10 text-white border-white/20 hover:bg-white/20"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Sign Out
-            </Button>
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="glass-panel">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Total Flights</p>
-                  <p className="text-3xl font-bold">{bookings.length}</p>
-                </div>
-                <Plane className="w-8 h-8 text-primary" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="glass-panel">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Active Bookings</p>
-                  <p className="text-3xl font-bold">{activeBookings.length}</p>
-                </div>
-                <Clock className="w-8 h-8 text-accent" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="glass-panel">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Completed</p>
-                  <p className="text-3xl font-bold">
-                    {bookings.filter((b) => b.status === "completed").length}
-                  </p>
-                </div>
-                <Calendar className="w-8 h-8 text-green-500" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Active Bookings */}
-        {activeBookings.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold text-white mb-4">Active Flights</h2>
-            <div className="grid gap-4">
-              {activeBookings.map((booking) => (
-                <Card key={booking.id} className="glass-panel">
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <CardTitle className="flex items-center gap-2">
-                          <Plane className="w-5 h-5" />
-                          {booking.vehicle_tier === "skypod" ? "SkyPod" : "AeroLuxe"}
-                        </CardTitle>
-                        <CardDescription>
-                          Booking ID: {booking.id.substring(0, 8)}
-                        </CardDescription>
-                      </div>
-                      <Badge className={getStatusColor(booking.status)}>
-                        {booking.status.replace("_", " ").toUpperCase()}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex items-start gap-2">
-                      <MapPin className="w-4 h-4 text-primary mt-1" />
-                      <div>
-                        <p className="text-sm font-semibold">Pickup</p>
-                        <p className="text-sm text-muted-foreground">
-                          {booking.pickup_location.address}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <MapPin className="w-4 h-4 text-accent mt-1" />
-                      <div>
-                        <p className="text-sm font-semibold">Destination</p>
-                        <p className="text-sm text-muted-foreground">
-                          {booking.destination.address}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center pt-2">
-                      <div className="flex items-center gap-2">
-                        <Clock className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm">{booking.estimated_duration} min</span>
-                      </div>
-                      <div className="text-lg font-bold text-primary">
-                        ₹{booking.final_price.toFixed(2)}
-                      </div>
-                    </div>
-                    {booking.status === "in_transit" && (
-                      <Button
-                        className="w-full"
-                        onClick={() => navigate(`/tracking/${booking.id}`)}
-                      >
-                        Track Flight
-                      </Button>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Past Bookings */}
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-6 md:p-12 font-sans">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-end mb-8 gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-white mb-4">Flight History</h2>
-          {loading ? (
-            <Card className="glass-panel">
-              <CardContent className="py-8 text-center">
-                <p className="text-muted-foreground">Loading...</p>
-              </CardContent>
-            </Card>
-          ) : pastBookings.length === 0 ? (
-            <Card className="glass-panel">
-              <CardContent className="py-8 text-center">
-                <Plane className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground mb-4">No past bookings yet</p>
-                <Button onClick={() => navigate("/")}>Book Your First Flight</Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4">
-              {pastBookings.map((booking) => (
-                <Card key={booking.id} className="glass-panel">
-                  <CardContent className="pt-6">
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">
-                          {booking.vehicle_tier === "skypod" ? "SkyPod" : "AeroLuxe"}
-                        </Badge>
-                        <Badge className={getStatusColor(booking.status)}>
-                          {booking.status}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {new Date(booking.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">From</p>
-                        <p className="text-sm">{booking.pickup_location.address}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">To</p>
-                        <p className="text-sm">{booking.destination.address}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-muted-foreground mb-1">Price</p>
-                        <p className="text-lg font-bold text-primary">
-                          ₹{booking.final_price.toFixed(2)}
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">
+            Welcome back, {userName}
+          </h1>
+          <p className="text-slate-400 mt-2 flex items-center gap-2">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            Bangalore Airspace is Active
+          </p>
         </div>
+        <Button 
+          onClick={() => navigate("/booking")} 
+          className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-6 text-lg shadow-lg shadow-blue-900/20"
+        >
+          Book New Flight
+        </Button>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <Card className="bg-slate-900/50 border-slate-800 backdrop-blur">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-400 uppercase tracking-wider">Total Trips</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-4xl font-bold text-white">{bookings.length}</div>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-slate-900/50 border-slate-800 backdrop-blur">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-400 uppercase tracking-wider">Active SkyCabs</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-4xl font-bold text-emerald-400 flex items-center gap-2">
+              {activeFleet}
+              <TrendingUp className="w-5 h-5 text-emerald-600" />
+            </div>
+            <p className="text-xs text-slate-500 mt-1">Currently airborne over Bangalore</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900/50 border-slate-800 backdrop-blur">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-400 uppercase tracking-wider">Upcoming</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-white">
+              {bookings.find(b => b.status === 'pending') 
+                ? new Date(bookings.find(b => b.status === 'pending')!.scheduled_for).toLocaleDateString()
+                : "No flights"}
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+               {bookings.find(b => b.status === 'pending') ? "Scheduled & Confirmed" : "Plan your next trip"}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Flight Logs */}
+      <h2 className="text-xl font-semibold mb-4 text-white">Recent Flight Logs</h2>
+      <div className="space-y-4">
+        {bookings.length === 0 ? (
+          <div className="p-8 border border-dashed border-slate-800 rounded-lg text-center text-slate-500">
+            No flight history found. Start your journey today!
+          </div>
+        ) : (
+          bookings.map((booking: any) => (
+            <div key={booking.id} className="flex flex-col md:flex-row items-center justify-between p-5 bg-slate-900 border border-slate-800 rounded-xl hover:border-slate-600 transition-all group">
+              <div className="flex items-center gap-5 w-full md:w-auto">
+                <div className={`p-3 rounded-full ${
+                  booking.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' : 
+                  booking.status === 'pending' ? 'bg-blue-500/10 text-blue-500' : 'bg-red-500/10 text-red-500'
+                }`}>
+                  {booking.status === 'completed' ? <MapPin className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
+                </div>
+                <div>
+                  <div className="text-lg font-medium text-slate-200 flex items-center gap-2">
+                    {booking.pickup?.name || "Unknown"} 
+                    <ArrowRight className="w-4 h-4 text-slate-600"/> 
+                    {booking.dropoff?.name || "Unknown"}
+                  </div>
+                  <div className="text-sm text-slate-500 flex items-center gap-3 mt-1">
+                    <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date(booking.scheduled_for).toLocaleDateString()}</span>
+                    <span className="w-1 h-1 bg-slate-700 rounded-full"></span>
+                    <span className="text-slate-400">₹{booking.price}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mt-4 md:mt-0 w-full md:w-auto text-right">
+                <span className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide border ${
+                  booking.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                  booking.status === 'pending' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 
+                  'bg-slate-800 text-slate-400 border-slate-700'
+                }`}>
+                  {booking.status}
+                </span>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
