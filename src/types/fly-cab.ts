@@ -2,10 +2,23 @@ export interface Skyport {
   id: string;
   name: string;
   address: string | null;
-  lat: number;  // From view
-  lng: number;  // From view
-  capacity: number;
   type: string;
+  lat: number;
+  lng: number;
+  capacity: number;
+  amenities: Record<string, any>;
+  status: string;
+}
+
+export interface Vehicle {
+  id: string;
+  call_sign: string;
+  model: string;
+  status: string;
+  battery_level: number;
+  lat: number;
+  lng: number;
+  vibe_features: Record<string, any>;
 }
 
 export interface NoFlyZone {
@@ -14,6 +27,25 @@ export interface NoFlyZone {
   reason: string;
   geometry: {
     type: "Polygon";
-    coordinates: number[][][]; // GeoJSON format [lng, lat]
+    coordinates: number[][][];
+  };
+}
+
+
+export interface Booking {
+  id: string;
+  created_at: string;
+  scheduled_for: string;
+  status: 'pending' | 'confirmed' | 'flying' | 'completed' | 'cancelled';
+  price: number;
+  
+  // These fields come from the Supabase Join (pickup:pickup_port_id(...))
+  pickup?: {
+    name: string;
+    type?: string;
+  };
+  dropoff?: {
+    name: string;
+    type?: string;
   };
 }
