@@ -1,5 +1,7 @@
 # Welcome to your Lovable project
 
+### Note: This README was updated by Amay for merge conflict testing.
+
 ## Project info
 
 **URL**: https://lovable.dev/projects/8ed1aec6-9756-497d-8705-da7a7799b35d
