@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, Circle, useMap } from "react-leaflet";
-import { Icon, LatLng } from "leaflet";
+import { Icon, LatLng, LatLngExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { supabase } from "@/integrations/supabase/client";
+import { Skyport, NoFlyZone } from "@/types/fly-cab"; // Import the types we just made
 
-// Fix for default marker icons
+// --- ICON SETUP ---
 import icon from "leaflet/dist/images/marker-icon.png";
 import iconShadow from "leaflet/dist/images/marker-shadow.png";
 import iconRetina from "leaflet/dist/images/marker-icon-2x.png";
@@ -37,10 +38,10 @@ const MapUpdater = ({ center }: { center: LatLng }) => {
   return null;
 };
 
-const BookingMap = ({ pickupLocation, destination, onLocationSelect }: BookingMapProps) => {
-  const [skyports, setSkyports] = useState<any[]>([]);
-  const [noFlyZones, setNoFlyZones] = useState<any[]>([]);
-  const [mapCenter, setMapCenter] = useState<LatLng>(new LatLng(12.9716, 77.5946)); // Bangalore center
+const BookingMap = ({ pickupLocation, destination }: BookingMapProps) => {
+  const [skyports, setSkyports] = useState<Skyport[]>([]);
+  const [noFlyZones, setNoFlyZones] = useState<NoFlyZone[]>([]);
+  const [mapCenter, setMapCenter] = useState<LatLng>(new LatLng(12.9716, 77.5946));
 
   useEffect(() => {
     fetchSkyports();
@@ -54,23 +55,26 @@ const BookingMap = ({ pickupLocation, destination, onLocationSelect }: BookingMa
   }, [pickupLocation]);
 
   const fetchSkyports = async () => {
+    // UPDATED: Query the VIEW, not the table
     const { data, error } = await supabase
-      .from("skyports")
-      .select("*")
-      .eq("status", "active");
+      .from("view_skyports_public") 
+      .select("*");
     
     if (!error && data) {
-      setSkyports(data);
+      setSkyports(data as Skyport[]);
+    } else if (error) {
+      console.error("Error fetching ports:", error);
     }
   };
 
   const fetchNoFlyZones = async () => {
+    // UPDATED: Query the VIEW, not the table
     const { data, error } = await supabase
-      .from("no_fly_zones")
+      .from("view_no_fly_zones_public")
       .select("*");
     
     if (!error && data) {
-      setNoFlyZones(data);
+      setNoFlyZones(data as unknown as NoFlyZone[]);
     }
   };
 
@@ -78,7 +82,7 @@ const BookingMap = ({ pickupLocation, destination, onLocationSelect }: BookingMa
     <div className="relative h-full w-full rounded-xl overflow-hidden border-2 border-primary/20">
       <MapContainer
         center={[12.9716, 77.5946]}
-        zoom={12}
+        zoom={11}
         className="h-full w-full"
         zoomControl={true}
       >
@@ -88,38 +92,41 @@ const BookingMap = ({ pickupLocation, destination, onLocationSelect }: BookingMa
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {/* Render SkyPorts */}
-        {skyports.map((skyport) => (
+        {/* --- Render SkyPorts --- */}
+        {skyports.map((port) => (
           <Marker
-            key={skyport.id}
-            position={[skyport.location.lat, skyport.location.lng]}
+            key={port.id}
+            // UPDATED: Using flat lat/lng from the View
+            position={[port.lat, port.lng]} 
             icon={SkyPortIcon}
           >
             <Popup>
               <div className="text-sm">
-                <strong>{skyport.name}</strong>
+                <strong>{port.name}</strong>
                 <br />
-                {skyport.address}
+                {port.address}
                 <br />
-                Capacity: {skyport.capacity}
+                <span className="text-blue-600 font-bold">{port.type.toUpperCase()}</span>
               </div>
             </Popup>
           </Marker>
         ))}
 
-        {/* Render No-Fly Zones */}
+        {/* --- Render No-Fly Zones --- */}
         {noFlyZones.map((zone) => {
-          const coordinates = zone.coordinates.map((coord: any) => [coord.lat, coord.lng]);
-          const color = zone.severity === 'high' ? '#EF4444' : zone.severity === 'medium' ? '#F59E0B' : '#10B981';
-          
+          // GeoJSON is [Lng, Lat], but Leaflet needs [Lat, Lng]. We must swap them.
+          const coordinates: LatLngExpression[] = zone.geometry.coordinates[0].map(
+            (coord) => [coord[1], coord[0]] // Swap here!
+          );
+
           return (
             <Polygon
               key={zone.id}
               positions={coordinates}
               pathOptions={{
-                color: color,
-                fillColor: color,
-                fillOpacity: 0.15,
+                color: '#EF4444',
+                fillColor: '#EF4444',
+                fillOpacity: 0.2,
                 weight: 2,
               }}
             >
@@ -128,41 +135,29 @@ const BookingMap = ({ pickupLocation, destination, onLocationSelect }: BookingMa
                   <strong>{zone.name}</strong>
                   <br />
                   {zone.reason}
-                  <br />
-                  <span className="text-destructive">Severity: {zone.severity}</span>
                 </div>
               </Popup>
             </Polygon>
           );
         })}
 
-        {/* Pickup Location Marker */}
+        {/* Pickup & Destination Visuals */}
         {pickupLocation && (
           <Circle
             center={[pickupLocation.lat, pickupLocation.lng]}
             radius={200}
-            pathOptions={{
-              color: '#3B82F6',
-              fillColor: '#3B82F6',
-              fillOpacity: 0.3,
-            }}
+            pathOptions={{ color: '#3B82F6', fillColor: '#3B82F6', fillOpacity: 0.3 }}
           />
         )}
 
-        {/* Destination Marker */}
         {destination && (
           <Circle
             center={[destination.lat, destination.lng]}
             radius={200}
-            pathOptions={{
-              color: '#10B981',
-              fillColor: '#10B981',
-              fillOpacity: 0.3,
-            }}
+            pathOptions={{ color: '#10B981', fillColor: '#10B981', fillOpacity: 0.3 }}
           />
         )}
 
-        {/* Flight Path */}
         {pickupLocation && destination && (
           <Polyline
             positions={[
